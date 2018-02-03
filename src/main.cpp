@@ -247,7 +247,7 @@ int main() {
             const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
             const double distanceIncrementForMaxSpeed_m = 0.44;
 
-            double lane = 1; // 0 left, 1 middle, 2 right
+            size_t lane = 1; // 0 left, 1 middle, 2 right
 
             size_t prev_size = previous_path_x.size();
 
@@ -264,7 +264,7 @@ int main() {
             {
               // car is in our lane
               double d  = sensor_fusion[i][6];
-              if (d > (lanesD_m[1] - laneWidth_m/2) && d < (lanesD_m[1] + laneWidth_m/2)) // d is on our lane
+              if (d > (lanesD_m[lane] - laneWidth_m/2) && d < (lanesD_m[lane] + laneWidth_m/2)) // d is on our lane
               {
                 double vx = sensor_fusion[i][3];
                 double vy = sensor_fusion[i][4];
@@ -333,9 +333,9 @@ int main() {
             }
 
             // add three reference points 30m apart in frenet space
-            vector<double> next_wp0 = getXY(car_s + 30, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp1 = getXY(car_s + 60, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp2 = getXY(car_s + 90, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp0 = getXY(car_s + 30, lanesD_m[lane], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s + 60, lanesD_m[lane], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s + 90, lanesD_m[lane], map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
             ptsx.push_back(next_wp0[0]);
             ptsy.push_back(next_wp0[1]);
