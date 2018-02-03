@@ -239,13 +239,48 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-            const double refVel_mps = mph2mps(49.9);
+            double refVel_mps = mph2mps(49.9);
             const double simCycle_s = 0.02;
             const double laneWidth_m = 4;
             const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
             const double distanceIncrementForMaxSpeed_m = 0.44;
 
+            double lane = 1; // 0 left, 1 middle, 2 right
+
             size_t prev_size = previous_path_x.size();
+
+            // avoid running into other cars in front
+            if(prev_size > 0)
+            {
+              car_s = end_path_s;
+            }
+
+            bool too_close = false;
+
+            // find ref_v to use
+            for(size_t i = 0; i < sensor_fusion.size(); ++i)
+            {
+              // car is in our lane
+              double d  = sensor_fusion[i][6];
+              if (d > (lanesD_m[1] - laneWidth_m/2) && d < (lanesD_m[1] + laneWidth_m/2)) // d is on our lane
+              {
+                double vx = sensor_fusion[i][3];
+                double vy = sensor_fusion[i][4];
+                double check_speed = sqrt(vx*vx + vy*vy);
+                double check_car_s = sensor_fusion[i][5];
+
+                check_car_s += ((double)prev_size*0.02*check_speed); // predict the s value if using previous path points
+                if((check_car_s > car_s) && (check_car_s - car_s) < 30) // car in front of us and nearer than 30m
+                {
+                  // lower ref velocity so we don't crash here
+                  refVel_mps = mph2mps(29.5);
+                  std::cout << "car in front!" << std::endl;
+                  //too_close = true;
+
+                  // TODO: change lanes
+                }
+              }
+            }
 
             vector<double> ptsx, ptsy;
 
