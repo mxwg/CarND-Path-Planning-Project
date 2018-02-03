@@ -16,8 +16,9 @@ using json = nlohmann::json;
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
+inline double deg2rad(double x) { return x * pi() / 180; }
+inline double rad2deg(double x) { return x * 180 / pi(); }
+inline double mph2mps(double v) { return v * 0.44704; }
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -244,6 +245,28 @@ int main() {
 
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+            // try starter code
+            const double refVel_mps = mph2mps(49.9);
+            const double simCycle_s = 0.02;
+            const double laneWidth_m = 4;
+            const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
+            const double distanceIncrementForMaxSpeed_m = 0.44;
+            double distanceIncrement_m = distanceIncrementForMaxSpeed_m;
+            for (size_t i = 0; i < 50; ++i)
+            {
+              double currentDistance_m = distanceIncrement_m * (i + 1);
+              double nextS = car_s + currentDistance_m;
+              double nextD = lanesD_m[1]; // middle lane
+              auto n = getXY(nextS, nextD, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              next_x_vals.push_back(n[0]);
+              next_y_vals.push_back(n[1]);
+            }
+
+            for(size_t i = 0; i < 50; ++i)
+            {
+              std::cout << "x,y: " << next_x_vals[i] << ", " << next_y_vals[i] << std::endl;
+            }
+
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
