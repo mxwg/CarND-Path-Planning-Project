@@ -202,7 +202,9 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  double refVel_mps = 0; // start from stand still
+
+  h.onMessage([&refVel_mps, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -239,7 +241,7 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-            double refVel_mps = mph2mps(49.9);
+            const double maxVel_mps = mph2mps(49.9);
             const double simCycle_s = 0.02;
             const double laneWidth_m = 4;
             const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
@@ -273,13 +275,27 @@ int main() {
                 if((check_car_s > car_s) && (check_car_s - car_s) < 30) // car in front of us and nearer than 30m
                 {
                   // lower ref velocity so we don't crash here
-                  refVel_mps = mph2mps(29.5);
                   std::cout << "car in front!" << std::endl;
-                  //too_close = true;
+                  too_close = true;
 
                   // TODO: change lanes
                 }
               }
+            }
+
+            double maxAcceleration = .324;
+            if (too_close)
+            {
+              refVel_mps -= maxAcceleration;
+            }
+            else if(refVel_mps < maxVel_mps)
+            {
+              refVel_mps += maxAcceleration;
+            }
+
+            if(refVel_mps > maxVel_mps)
+            {
+              refVel_mps = maxVel_mps;
             }
 
             vector<double> ptsx, ptsy;
