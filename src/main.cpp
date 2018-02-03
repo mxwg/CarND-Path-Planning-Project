@@ -8,6 +8,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+#include "spline.h"
 
 using namespace std;
 
@@ -238,35 +239,113 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-          	json msgJson;
-
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
-
-
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-            // try starter code
             const double refVel_mps = mph2mps(49.9);
             const double simCycle_s = 0.02;
             const double laneWidth_m = 4;
             const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
             const double distanceIncrementForMaxSpeed_m = 0.44;
-            double distanceIncrement_m = distanceIncrementForMaxSpeed_m;
-            for (size_t i = 0; i < 50; ++i)
+
+            size_t prev_size = previous_path_x.size();
+
+            vector<double> ptsx, ptsy;
+
+            // reference x,y,yaw, either where the car is at or at the previous path's end point
+            double ref_x = car_x;
+            double ref_y = car_y;
+            double ref_yaw = deg2rad(car_yaw);
+
+            if (prev_size < 2)
             {
-              double currentDistance_m = distanceIncrement_m * (i + 1);
-              double nextS = car_s + currentDistance_m;
-              double nextD = lanesD_m[1]; // middle lane
-              auto n = getXY(nextS, nextD, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-              next_x_vals.push_back(n[0]);
-              next_y_vals.push_back(n[1]);
+              double prev_car_x = car_x - cos(car_yaw);
+              double prev_car_y = car_y - sin(car_yaw);
+
+              ptsx.push_back(prev_car_x);
+              ptsx.push_back(car_x);
+              ptsy.push_back(prev_car_y);
+              ptsy.push_back(car_y);
+            }
+            else
+            {
+              // reference state is previous path's end point
+              ref_x = previous_path_x[prev_size-1];
+              ref_y = previous_path_y[prev_size-1];
+
+              double ref_x_prev = previous_path_x[prev_size-2];
+              double ref_y_prev = previous_path_y[prev_size-2];
+              ref_yaw = atan2(ref_y - ref_y_prev, ref_x - ref_x_prev);
+
+              // use two points to make the path tangent to previous path's endpoint
+              ptsx.push_back(ref_x_prev);
+              ptsx.push_back(ref_x);
+              ptsy.push_back(ref_y_prev);
+              ptsy.push_back(ref_y);
             }
 
-            for(size_t i = 0; i < 50; ++i)
+            // add three reference points 30m apart in frenet space
+            vector<double> next_wp0 = getXY(car_s + 30, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s + 60, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s + 90, lanesD_m[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+            ptsx.push_back(next_wp0[0]);
+            ptsy.push_back(next_wp0[1]);
+            ptsx.push_back(next_wp1[0]);
+            ptsy.push_back(next_wp1[1]);
+            ptsx.push_back(next_wp2[0]);
+            ptsy.push_back(next_wp2[1]);
+
+            // tranform to car-local coordinate frame
+            for(size_t i = 0; i < ptsx.size(); ++i)
             {
-              std::cout << "x,y: " << next_x_vals[i] << ", " << next_y_vals[i] << std::endl;
+              double shift_x = ptsx[i] - ref_x;
+              double shift_y = ptsy[i] - ref_y;
+
+              ptsx[i] = shift_x * cos(0 - ref_yaw) - shift_y * sin(0 - ref_yaw);
+              ptsy[i] = shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw);
             }
 
+            // Create a spline with x,y points
+            tk::spline s;
+            s.set_points(ptsx, ptsy);
+
+          	vector<double> next_x_vals;
+          	vector<double> next_y_vals;
+
+            // re-use all the path points from the previous iteration
+            for(size_t i = 0; i < previous_path_x.size(); ++i)
+            {
+              next_x_vals.push_back(previous_path_x[i]);
+              next_y_vals.push_back(previous_path_y[i]);
+            }
+
+            // break up spline points so that the car moves at refVel_mps
+            double target_x = 30;
+            double target_y = s(target_x);
+            double targetDistance_m = sqrt(target_x*target_x + target_y*target_y);
+
+            double x_add_on = 0;
+            for(size_t i = 0; i < 50-previous_path_x.size(); ++i)
+            {
+              double N = targetDistance_m / (simCycle_s*refVel_mps);
+              double x_point = x_add_on + target_x / N;
+              double y_point = s(x_point);
+
+              x_add_on = x_point;
+
+              double x_ref = x_point;
+              double y_ref = y_point;
+
+              // transform back to global coordinate system
+              x_point = (x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw));
+              y_point = (x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw));
+
+              x_point += ref_x;
+              y_point += ref_y;
+
+              next_x_vals.push_back(x_point);
+              next_y_vals.push_back(y_point);
+            }
+
+          	json msgJson;
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
