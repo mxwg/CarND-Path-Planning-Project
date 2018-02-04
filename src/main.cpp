@@ -28,6 +28,13 @@ inline double rad2deg(double x)
 inline double mph2mps(double v)
 { return v * 0.44704; }
 
+// Constants
+const double maxVel_mps = mph2mps(49.9);
+const double simCycle_s = 0.02;
+const double laneWidth_m = 4;
+const double laneCenter[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
+
+
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -177,6 +184,36 @@ getXY(double s, double d, const vector<double> &maps_s, const vector<double> &ma
 
 }
 
+inline bool carsAreInSameLane(size_t lane, double laneOfOtherCar)
+{
+  return
+      laneOfOtherCar > (laneCenter[lane] - laneWidth_m / 2) &&
+      laneOfOtherCar < (laneCenter[lane] + laneWidth_m / 2);
+}
+
+struct Car
+{
+  double vx;
+  double vy;
+  double speed;
+  double s;
+  double d;
+
+  Car(size_t i, vector<vector<double>> sensor_fusion)
+  {
+    vx = sensor_fusion[i][3];
+    vy = sensor_fusion[i][4];
+    speed = sqrt(vx * vx + vy * vy);
+    s = sensor_fusion[i][5];
+    d = sensor_fusion[i][6];
+  }
+
+  void predictS(size_t prevSize)
+  {
+    s += (double) prevSize * simCycle_s * speed;
+  }
+};
+
 int main()
 {
   uWS::Hub h;
@@ -261,11 +298,6 @@ int main()
               // Sensor Fusion Data, a list of all other cars on the same side of the road.
               auto sensor_fusion = j[1]["sensor_fusion"];
 
-              const double maxVel_mps = mph2mps(49.9);
-              const double simCycle_s = 0.02;
-              const double laneWidth_m = 4;
-              const double lanesD_m[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
-              const double distanceIncrementForMaxSpeed_m = 0.44;
 
               size_t lane = 1; // 0 left, 1 middle, 2 right
 
@@ -274,6 +306,7 @@ int main()
               // avoid running into other cars in front
               if (prev_size > 0)
               {
+                std::cout << "using end path instead of car_s: " << car_s << " --> " << end_path_s << std::endl;
                 car_s = end_path_s;
               }
 
@@ -282,20 +315,15 @@ int main()
               // find ref_v to use
               for (size_t i = 0; i < sensor_fusion.size(); ++i)
               {
-                // car is in our lane
-                double d = sensor_fusion[i][6];
-                if (d > (lanesD_m[lane] - laneWidth_m / 2) &&
-                    d < (lanesD_m[lane] + laneWidth_m / 2)) // d is on our lane
+                // get information about the other car
+                Car other(i, sensor_fusion);
+                other.predictS(prev_size);
+                
+                double otherLane = sensor_fusion[i][6];
+                if (carsAreInSameLane(lane, other.d))
                 {
-                  double vx = sensor_fusion[i][3];
-                  double vy = sensor_fusion[i][4];
-                  double check_speed = sqrt(vx * vx + vy * vy);
-                  double check_car_s = sensor_fusion[i][5];
-
-                  check_car_s += ((double) prev_size * 0.02 *
-                                  check_speed); // predict the s value if using previous path points
-                  if ((check_car_s > car_s) &&
-                      (check_car_s - car_s) < 30) // car in front of us and nearer than 30m
+                  // check whether car in front of us and nearer than 30m
+                  if ((other.s > car_s) && (other.s - car_s) < 30)
                   {
                     // lower ref velocity so we don't crash here
                     std::cout << "car in front!" << std::endl;
@@ -308,7 +336,9 @@ int main()
                 }
               }
 
-              double maxAcceleration = .324;
+              // TODO: if we can't change lanes, brake...
+
+              double maxAcceleration = .224; // 5 meters/s^2
               if (too_close)
               {
                 refVel_mps -= maxAcceleration;
@@ -356,11 +386,11 @@ int main()
               }
 
               // add three reference points 30m apart in frenet space
-              vector<double> next_wp0 = getXY(car_s + 30, lanesD_m[lane], map_waypoints_s,
+              vector<double> next_wp0 = getXY(car_s + 30, laneCenter[lane], map_waypoints_s,
                                               map_waypoints_x, map_waypoints_y);
-              vector<double> next_wp1 = getXY(car_s + 60, lanesD_m[lane], map_waypoints_s,
+              vector<double> next_wp1 = getXY(car_s + 60, laneCenter[lane], map_waypoints_s,
                                               map_waypoints_x, map_waypoints_y);
-              vector<double> next_wp2 = getXY(car_s + 90, lanesD_m[lane], map_waypoints_s,
+              vector<double> next_wp2 = getXY(car_s + 90, laneCenter[lane], map_waypoints_s,
                                               map_waypoints_x, map_waypoints_y);
 
               ptsx.push_back(next_wp0[0]);
