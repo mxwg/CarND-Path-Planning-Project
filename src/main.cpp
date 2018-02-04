@@ -313,18 +313,17 @@ int main()
 
               size_t prev_size = previous_path_x.size();
 
-              // avoid running into other cars in front
+              // use the end of the previous path instead of the current car position if available
               if (prev_size > 0)
               {
-//                std::cout << "using end path instead of car_s: " << car_s << " --> " << end_path_s << std::endl;
                 car_s = end_path_s;
               }
 
               bool changeLanes = false;
               bool needToBrake = false;
-
               bool laneFree[3] = {true, true, true};
-              // find ref_v to use
+
+              // analyze sensor fusion information
               for (size_t i = 0; i < sensor_fusion.size(); ++i)
               {
                 // get information about the other car
@@ -335,21 +334,25 @@ int main()
                 bool otherCarInFront = (other.s > car_s) && ((other.s - car_s) < 30);
                 bool otherCarBehind = (other.s < car_s) && ((car_s - other.s) < 5);
                 bool otherCarInSameLane = carsAreInSameLane(lane, other.d);
+
                 if (otherCarInFront || otherCarBehind)
                 {
                   updateLaneFreeInformation(other, laneFree);
                 }
-                // think about changing lanes
+
+                // consider changing lanes
                 if (otherCarInFront && otherCarInSameLane)
                 {
                   changeLanes = true;
-                }
-                if (otherCarInFront && otherCarInSameLane && (other.s - car_s) < 20)
-                {
-                  needToBrake = true;
+
+                  if(other.s - car_s < 20) // if the car is too near, brake
+                  {
+                    needToBrake = true;
+                  }
                 }
               }
 
+              // print lane occupancy and other information
               std::cout << "lanes: [";
               for (size_t l = 0; l < 3; ++l)
               {
@@ -360,34 +363,29 @@ int main()
               }
               std::cout << "]";
 
-
-
               // change lanes if possible
               bool canChangeToTheLeft = (lane > 0) && laneFree[lane - 1];
               bool canChangeToTheRight = (lane < 2) && laneFree[lane + 1];
-              bool wrongLane = true;//lane != targetLane;
               bool stayPut = false;
-              if (wrongLane && changeLanes && canChangeToTheLeft)
+
+              if (changeLanes && canChangeToTheLeft)
               {
                 lane -= 1;
                 targetLane = lane;
-                std::cout << " chLef ";
-              } else if (wrongLane && changeLanes && canChangeToTheRight)
+                std::cout << " <-- ";
+              } else if (changeLanes && canChangeToTheRight)
               {
                 lane += 1;
                 targetLane = lane;
-                std::cout << " chRig ";
+                std::cout << " --> ";
               } else
               {
-                std::cout << " stayP ";
+                std::cout << " ... ";
                 stayPut = true;
               }
 
-
-
-              // TODO: if we can't change lanes, brake...
-
-              double maxAcceleration = .224; // 5 meters/s^2
+              // brake if necessary
+              double maxAcceleration = .224; // corresponds to 5 meters/s^2
               if (stayPut && needToBrake)
               {
                 std::cout << "brake! ";
@@ -403,6 +401,7 @@ int main()
               {
                 refVel_mps = maxVel_mps;
               }
+
               std::cout << std::endl;
 
               vector<double> ptsx, ptsy;
@@ -453,7 +452,7 @@ int main()
               ptsx.push_back(next_wp2[0]);
               ptsy.push_back(next_wp2[1]);
 
-              // tranform to car-local coordinate frame
+              // transform to car-local coordinate frame
               for (size_t i = 0; i < ptsx.size(); ++i)
               {
                 double shift_x = ptsx[i] - ref_x;
