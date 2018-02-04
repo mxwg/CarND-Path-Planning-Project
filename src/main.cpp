@@ -29,7 +29,7 @@ inline double mph2mps(double v)
 { return v * 0.44704; }
 
 // Constants
-const double maxVel_mps = mph2mps(49.9);
+const double maxVel_mps = mph2mps(49.5);
 const double simCycle_s = 0.02;
 const double laneWidth_m = 4;
 const double laneCenter[3] = {0.5 * laneWidth_m, 1.5 * laneWidth_m, 2.5 * laneWidth_m};
@@ -214,6 +214,17 @@ struct Car
   }
 };
 
+void updateLaneFreeInformation(const Car &otherCar, bool *laneFree)
+{
+  for (size_t l = 0; l < 3; ++l)
+  {
+    if (carsAreInSameLane(l, otherCar.d))
+    {
+      laneFree[l] = false;
+    }
+  }
+}
+
 int main()
 {
   uWS::Hub h;
@@ -254,9 +265,10 @@ int main()
   }
 
   double refVel_mps = 0; // start from stand still
-
+  size_t lane = 1; // 0 left, 1 middle, 2 right
+  size_t targetLane = 1;
   h.onMessage(
-      [&refVel_mps, &map_waypoints_x, &map_waypoints_y, &map_waypoints_s, &map_waypoints_dx, &map_waypoints_dy](
+      [&refVel_mps, &lane, &targetLane, &map_waypoints_x, &map_waypoints_y, &map_waypoints_s, &map_waypoints_dx, &map_waypoints_dy](
           uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
           uWS::OpCode opCode)
       {
@@ -299,58 +311,99 @@ int main()
               auto sensor_fusion = j[1]["sensor_fusion"];
 
 
-              size_t lane = 1; // 0 left, 1 middle, 2 right
-
               size_t prev_size = previous_path_x.size();
 
               // avoid running into other cars in front
               if (prev_size > 0)
               {
-                std::cout << "using end path instead of car_s: " << car_s << " --> " << end_path_s << std::endl;
+//                std::cout << "using end path instead of car_s: " << car_s << " --> " << end_path_s << std::endl;
                 car_s = end_path_s;
               }
 
-              bool too_close = false;
+              bool changeLanes = false;
+              bool needToBrake = false;
 
+              bool laneFree[3] = {true, true, true};
               // find ref_v to use
               for (size_t i = 0; i < sensor_fusion.size(); ++i)
               {
                 // get information about the other car
                 Car other(i, sensor_fusion);
                 other.predictS(prev_size);
-                
-                double otherLane = sensor_fusion[i][6];
-                if (carsAreInSameLane(lane, other.d))
-                {
-                  // check whether car in front of us and nearer than 30m
-                  if ((other.s > car_s) && (other.s - car_s) < 30)
-                  {
-                    // lower ref velocity so we don't crash here
-                    std::cout << "car in front!" << std::endl;
-                    too_close = true;
-                    if (lane == 1)
-                      lane = 0;
 
-                    // TODO: change lanes
-                  }
+                // check whether the car is anywhere we need to worry about it
+                bool otherCarInFront = (other.s > car_s) && ((other.s - car_s) < 30);
+                bool otherCarBehind = (other.s < car_s) && ((car_s - other.s) < 5);
+                bool otherCarInSameLane = carsAreInSameLane(lane, other.d);
+                if (otherCarInFront || otherCarBehind)
+                {
+                  updateLaneFreeInformation(other, laneFree);
+                }
+                // think about changing lanes
+                if (otherCarInFront && otherCarInSameLane)
+                {
+                  changeLanes = true;
+                }
+                if (otherCarInFront && otherCarInSameLane && (other.s - car_s) < 20)
+                {
+                  needToBrake = true;
                 }
               }
+
+              std::cout << "lanes: [";
+              for (size_t l = 0; l < 3; ++l)
+              {
+                if (laneFree[l])
+                  std::cout << " ";
+                else
+                  std::cout << "X";
+              }
+              std::cout << "]";
+
+
+
+              // change lanes if possible
+              bool canChangeToTheLeft = (lane > 0) && laneFree[lane - 1];
+              bool canChangeToTheRight = (lane < 2) && laneFree[lane + 1];
+              bool wrongLane = true;//lane != targetLane;
+              bool stayPut = false;
+              if (wrongLane && changeLanes && canChangeToTheLeft)
+              {
+                lane -= 1;
+                targetLane = lane;
+                std::cout << " chLef ";
+              } else if (wrongLane && changeLanes && canChangeToTheRight)
+              {
+                lane += 1;
+                targetLane = lane;
+                std::cout << " chRig ";
+              } else
+              {
+                std::cout << " stayP ";
+                stayPut = true;
+              }
+
+
 
               // TODO: if we can't change lanes, brake...
 
               double maxAcceleration = .224; // 5 meters/s^2
-              if (too_close)
+              if (stayPut && needToBrake)
               {
+                std::cout << "brake! ";
                 refVel_mps -= maxAcceleration;
               } else if (refVel_mps < maxVel_mps)
               {
+                std::cout << "accel! ";
                 refVel_mps += maxAcceleration;
               }
 
+              // clamp highest speed
               if (refVel_mps > maxVel_mps)
               {
                 refVel_mps = maxVel_mps;
               }
+              std::cout << std::endl;
 
               vector<double> ptsx, ptsy;
 
